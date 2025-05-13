@@ -4,7 +4,7 @@ import random
 from PIL import Image
 
 # Load your trained models
-model = RTDETR("models/object_detection.pt")  # Ensure correct path
+model = RTDETR("../models/object_detection.pt")  # Ensure correct path
 
 # Path to your directory of random images
 image_dir = "../data/InsPLAD-det/val/images"
@@ -39,7 +39,7 @@ for _ in range(num_test_images):
 
             annotated_image_np = result.plot()  # Get the annotated image as a NumPy array
             annotated_image_pil = Image.fromarray(annotated_image_np.astype('uint8')) # Convert to PIL Image
-            save_path = f"no_train_detected_{os.path.basename(random_image_path)}"
+            save_path = f"detected_{os.path.basename(random_image_path)}"
             annotated_image_pil.save(save_path)  # Now you can use .save()
             print(f"  Saved annotated image to: {save_path}")
         else:
