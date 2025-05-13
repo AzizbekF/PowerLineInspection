@@ -4,10 +4,10 @@ import random
 from PIL import Image
 
 # Load your trained model
-model = RTDETR("./model/object-detection.pt")  # Ensure correct path
+model = RTDETR("model/object_detection.pt")  # Ensure correct path
 
 # Path to your directory of random images
-image_dir = "data/InsPLAD-det/val/images"
+image_dir = "../data/InsPLAD-det/val/images"
 
 # Get a list of all image files
 image_files = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if os.path.isfile(os.path.join(image_dir, f))]
