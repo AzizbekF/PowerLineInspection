@@ -3,8 +3,8 @@ import os
 import random
 from PIL import Image
 
-# Load your trained model
-model = RTDETR("model/object_detection.pt")  # Ensure correct path
+# Load your trained models
+model = RTDETR("models/object_detection.pt")  # Ensure correct path
 
 # Path to your directory of random images
 image_dir = "../data/InsPLAD-det/val/images"

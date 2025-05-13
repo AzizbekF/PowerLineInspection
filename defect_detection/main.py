@@ -18,7 +18,7 @@ def main():
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Train and test the model
+    # Train and test the models
     print("Starting training and testing pipeline...")
     model_data, test_accuracy = train_and_test_powerline_defect_detector(
         csv_path=csv_path,
@@ -33,7 +33,7 @@ def main():
         test_images_dir=test_images_dir
     )
 
-    # Access the trained model and metadata
+    # Access the trained models and metadata
     state_model = model_data['state_model']
     category_to_idx = model_data['category_to_idx']
     status_to_idx = model_data['status_to_idx']
@@ -42,13 +42,13 @@ def main():
     print(f"Final test accuracy: {test_accuracy:.2f}%")
     print(f"Model and results saved to: {output_dir}")
 
-    # You can now use the trained model for inference
+    # You can now use the trained models for inference
     print("\nModel can now be used for inference.")
-    print("Categories in the model:")
+    print("Categories in the models:")
     for category, idx in category_to_idx.items():
         print(f"  - {category} (index: {idx})")
 
-    print("\nStates in the model:")
+    print("\nStates in the models:")
     for status, idx in status_to_idx.items():
         print(f"  - {status} (index: {idx})")
 

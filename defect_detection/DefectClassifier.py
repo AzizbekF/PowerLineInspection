@@ -8,7 +8,7 @@ import numpy as np
 class DefectClassifier(nn.Module):
     def __init__(self, num_classes=2):
         super().__init__()
-        # Use a pretrained model as feature extractor
+        # Use a pretrained models as feature extractor
         self.backbone = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', pretrained=True)
         # Remove the final classification layer
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])

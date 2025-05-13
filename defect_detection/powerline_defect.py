@@ -28,13 +28,13 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
-# Multi-class State Classifier model
+# Multi-class State Classifier models
 class PowerlineStateClassifier(nn.Module):
     def __init__(self, num_states=11, num_categories=5, backbone="efficientnet_b0", use_category_embedding=True):
         super().__init__()
         self.use_category_embedding = use_category_embedding
 
-        # Use a pretrained model as feature extractor
+        # Use a pretrained models as feature extractor
         self.backbone_name = backbone
         if backbone == "resnet50":
             self.backbone = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', weights='IMAGENET1K_V1')
@@ -241,25 +241,25 @@ def process_detection(detection, image, state_model, transform, category_to_idx,
     }
 
 
-# RT-DETR model class
+# RT-DETR models class
 class RTDETRModel:
     """
-    Implementation of the RT-DETR model for powerline component detection
-    This is where you would implement your actual RT-DETR model
+    Implementation of the RT-DETR models for powerline component detection
+    This is where you would implement your actual RT-DETR models
     """
 
     def __init__(self, model_path, device='cuda'):
         self.model_path = model_path
         self.device = device
 
-        # Load your RT-DETR model here
+        # Load your RT-DETR models here
         # This is a placeholder - in a real implementation, you would:
         self.model = RTDETR(model_path)
         self.model.to(device)
-        # 1. Load your trained RT-DETR model
+        # 1. Load your trained RT-DETR models
         # 2. Move it to the appropriate device
         # 3. Set it to evaluation mode
-        print(f"Initialized RT-DETR model from {model_path}")
+        print(f"Initialized RT-DETR models from {model_path}")
 
     def __call__(self, image):
         """
@@ -293,7 +293,7 @@ def train_and_test_model():
 
     # Define parameters
     csv_path = "./dataset/labels_with_status_code.csv"  # Path to your CSV file
-    rtdetr_model_path = "models/object/best.pt"  # Path to your RT-DETR model
+    rtdetr_model_path = "models/object/best.pt"  # Path to your RT-DETR models
     output_dir = "output/powerline_defect"  # Output directory
     test_split = 0.2  # 20% of data for testing
     val_split = 0.1  # 10% of remaining data for validation
@@ -446,8 +446,8 @@ def train_and_test_model():
         num_workers=0, pin_memory=True
     )
 
-    # Step 6: Create and train the model
-    print(f"\nInitializing model with backbone: {backbone}")
+    # Step 6: Create and train the models
+    print(f"\nInitializing models with backbone: {backbone}")
     state_model = PowerlineStateClassifier(
         num_states=num_states,
         num_categories=num_categories,
@@ -543,7 +543,7 @@ def train_and_test_model():
         print(f'Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%')
         print('-' * 50)
 
-        # Save the best model
+        # Save the best models
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save({
@@ -559,7 +559,7 @@ def train_and_test_model():
                 'num_states': num_states,
                 'num_categories': num_categories,
             }, best_model_path)
-            print(f"Saved best model with validation accuracy: {val_acc:.2f}%")
+            print(f"Saved best models with validation accuracy: {val_acc:.2f}%")
 
     # Plot training history
     plt.figure(figsize=(12, 5))
@@ -584,8 +584,8 @@ def train_and_test_model():
     plt.savefig(os.path.join(output_dir, 'training_history.png'))
     plt.close()
 
-    # Step 7: Load the best model for evaluation
-    print("\nLoading best model for evaluation...")
+    # Step 7: Load the best models for evaluation
+    print("\nLoading best models for evaluation...")
     checkpoint = torch.load(best_model_path, map_location=device)
     state_model.load_state_dict(checkpoint['model_state_dict'])
     state_model.eval()
@@ -732,7 +732,7 @@ def train_and_test_model():
     # Step 10: Test with RT-DETR integration
     print("\nTesting integration with RT-DETR...")
 
-    # Initialize RT-DETR model
+    # Initialize RT-DETR models
     rtdetr_model = RTDETRModel(rtdetr_model_path, device)
 
     # Create a visualization directory
@@ -818,7 +818,7 @@ def train_and_test_model():
         except Exception as e:
             print(f"Error processing {img_path}: {e}")
 
-    # Step 11: Save model metadata
+    # Step 11: Save models metadata
     metadata = {
         'num_categories': num_categories,
         'num_states': num_states,
@@ -832,7 +832,7 @@ def train_and_test_model():
 
     pd.DataFrame([metadata]).to_csv(os.path.join(output_dir, 'model_metadata.csv'), index=False)
 
-    print("\nSaved model and results to:", output_dir)
+    print("\nSaved models and results to:", output_dir)
     print(f"Final test accuracy: {test_acc:.2f}%")
     print("Training and testing completed successfully!")
 
@@ -864,7 +864,7 @@ ASSET_CATEGORIES = [
 class DefectClassifier(nn.Module):
     def __init__(self, num_classes=2, backbone="resnet50"):
         super().__init__()
-        # Use a pretrained model as feature extractor
+        # Use a pretrained models as feature extractor
         self.backbone_name = backbone
         if backbone == "resnet50":
             self.backbone = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', pretrained=True)
@@ -1111,7 +1111,7 @@ def train_defect_classifier(train_loader, val_loader, model, num_epochs=10, lr=0
               f'Val Loss: {val_loss:.4f}, '
               f'Val Acc: {val_acc:.2f}%')
 
-        # Save the best model
+        # Save the best models
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), 'best_defect_model.pth')
@@ -1178,7 +1178,7 @@ def train_anomaly_detector(train_loader, val_loader, model, num_epochs=10, lr=0.
               f'Train Loss: {train_loss:.8f}, '
               f'Val Loss: {val_loss:.8f}')
 
-        # Save the best model
+        # Save the best models
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), 'best_anomaly_model.pth')
@@ -1311,9 +1311,9 @@ class PowerlineInspectionSystem:
         Initialize the powerline inspection system.
 
         Args:
-            detector_model: Your RT-DETR model for object detection
-            defect_model: Trained defect classification model
-            anomaly_model: Trained anomaly detection model
+            detector_model: Your RT-DETR models for object detection
+            defect_model: Trained defect classification models
+            anomaly_model: Trained anomaly detection models
             anomaly_threshold: Threshold for anomaly detection
         """
         self.detector_model = detector_model
@@ -1371,7 +1371,7 @@ class PowerlineInspectionSystem:
                 "is_anomaly": None
             }
 
-            # Step 2: Perform defect classification if model is available
+            # Step 2: Perform defect classification if models is available
             if self.defect_model is not None:
                 device = next(self.defect_model.parameters()).device
                 processed_crop = processed_crop.to(device)
@@ -1385,7 +1385,7 @@ class PowerlineInspectionSystem:
                 result["defect_status"] = "Fault" if defect_pred == 1 else "Normal"
                 result["defect_confidence"] = defect_conf
 
-            # Step 3: Perform anomaly detection if model is available
+            # Step 3: Perform anomaly detection if models is available
             if self.anomaly_model is not None:
                 device = next(self.anomaly_model.parameters()).device
                 processed_crop = processed_crop.to(device)
@@ -1495,15 +1495,15 @@ def example_usage():
     print("Setting up the powerline inspection system...")
 
     # 1. Load your pre-trained object detector
-    # This is a placeholder for your RT-DETR model
+    # This is a placeholder for your RT-DETR models
     class RTDETRDetector:
         def __init__(self, model_path):
-            # Load your actual model here
+            # Load your actual models here
             self.model_path = model_path
             print(f"Loaded object detector from {model_path}")
 
         def __call__(self, image):
-            # This is just a placeholder - in reality you'd use your RT-DETR model
+            # This is just a placeholder - in reality you'd use your RT-DETR models
             print("Detecting objects in image...")
             # Return dummy detections for demonstration
             return [
@@ -1517,7 +1517,7 @@ def example_usage():
         defect_model.load_state_dict(torch.load('best_defect_model.pth'))
         print("Loaded defect classifier from best_defect_model.pth")
     except:
-        print("Could not load defect model weights - using untrained model")
+        print("Could not load defect models weights - using untrained models")
 
     # 3. Create and load the anomaly detector
     anomaly_model = AnomalyDetector()
@@ -1527,11 +1527,11 @@ def example_usage():
         # You would normally load or compute the threshold from validation
         anomaly_threshold = 0.01  # Example threshold
     except:
-        print("Could not load anomaly model weights - using untrained model")
+        print("Could not load anomaly models weights - using untrained models")
         anomaly_threshold = None
 
     # 4. Create the inspection system
-    detector = RTDETRDetector(model_path="path/to/your/rtdetr/model.pth")
+    detector = RTDETRDetector(model_path="path/to/your/rtdetr/models.pth")
     inspection_system = PowerlineInspectionSystem(
         detector_model=detector,
         defect_model=defect_model,
@@ -1652,10 +1652,10 @@ def train_models(data_dir, output_dir, asset_categories=None):
         num_epochs=20, lr=0.001
     )
 
-    # Save the trained model
+    # Save the trained models
     torch.save(defect_model.state_dict(), os.path.join(output_dir, "defect_model.pth"))
 
-    # Evaluate the model
+    # Evaluate the models
     test_preds, test_labels, test_assets = evaluate_defect_classifier(defect_model, test_loader)
 
     # 2. Train the anomaly detector
@@ -1693,7 +1693,7 @@ def train_models(data_dir, output_dir, asset_categories=None):
         num_epochs=20, lr=0.001
     )
 
-    # Save the trained model
+    # Save the trained models
     torch.save(anomaly_model.state_dict(), os.path.join(output_dir, "anomaly_model.pth"))
 
     # Evaluate the anomaly detector
