@@ -1,57 +1,110 @@
-#!/usr/bin/env python3
-# example_usage.py - Example of using the powerline defect detection system
+import torch.optim as optim
+from utils.util import *
 
-import os
-from powerline_defect import train_and_test_powerline_defect_detector
+# --- Configuration & Hyperparameters ---
+CSV_FILE_PATH = '../dataset/image_labels_with_code.csv'  # Replace with your CSV file path
+IMAGE_DIR = '../data/InsPLAD-fault/defect_supervised'  # Replace with the base directory of your images
 
+IMG_HEIGHT = 224  # Image height for ResNet
+IMG_WIDTH = 224  # Image width for ResNet
+BATCH_SIZE = 32
+NUM_WORKERS = 4  # Number of worker processes for DataLoader
+LEARNING_RATE = 1e-4
+NUM_EPOCHS = 50  # Max number of epochs (early stopping will be used)
+EARLY_STOPPING_PATIENCE = 5
+BEST_MODEL_PATH = 'best_defect_detection_model.pth'
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def main():
-    """
-    Example of how to use the powerline defect detection system with real data
-    """
-    # Define paths
-    csv_path = "./dataset/labels_with_status_code.csv"
-    rtdetr_model_path = "models/rt_detr_model.pth"
-    output_dir = "results/defect_detection"
-    test_images_dir = "data/test_images"
+if __name__ == '__main__':
+    print(f"Using device: {DEVICE}")
 
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
+    # --- Setup ---
+    if not os.path.exists(CSV_FILE_PATH):
+        print(f"Warning: {CSV_FILE_PATH} not found.")
 
-    # Train and test the models
-    print("Starting training and testing pipeline...")
-    model_data, test_accuracy = train_and_test_powerline_defect_detector(
-        csv_path=csv_path,
-        rtdetr_model_path=rtdetr_model_path,
-        output_dir=output_dir,
-        test_split=0.2,  # 20% of data for testing
-        val_split=0.1,  # 10% of remaining data for validation
-        num_epochs=30,  # Train for 30 epochs
-        batch_size=32,  # Batch size of 32
-        learning_rate=0.001,  # Initial learning rate
-        backbone="efficientnet_b0",  # Use EfficientNet B0 backbone
-        test_images_dir=test_images_dir
+    # --- Data Loading and Preparation ---
+    df = load_data_from_csv(CSV_FILE_PATH)
+    train_df, val_df = split_data(df, stratify_col='status')  # Ensure 'status' is the correct column
+
+    # Define image transformations
+    # For ResNet, normalization values are typically from ImageNet
+    imagenet_mean = [0.485, 0.456, 0.406]
+    imagenet_std = [0.229, 0.224, 0.225]
+
+    train_transform = transforms.Compose([
+        transforms.Resize((IMG_HEIGHT, IMG_WIDTH)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        # Add more augmentations if needed (e.g., ColorJitter)
+        transforms.ToTensor(),
+        transforms.Normalize(mean=imagenet_mean, std=imagenet_std)
+    ])
+
+    val_transform = transforms.Compose([
+        transforms.Resize((IMG_HEIGHT, IMG_WIDTH)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=imagenet_mean, std=imagenet_std)
+    ])
+
+    train_loader, val_loader = get_data_loaders(
+        train_df, val_df, IMAGE_DIR, train_transform, val_transform, BATCH_SIZE, NUM_WORKERS
     )
 
-    # Access the trained models and metadata
-    state_model = model_data['state_model']
-    category_to_idx = model_data['category_to_idx']
-    status_to_idx = model_data['status_to_idx']
+    # --- Model Initialization ---
+    # num_classes=1 for binary classification with BCEWithLogitsLoss
+    model = get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=True)
 
-    print(f"\nTraining and testing completed!")
-    print(f"Final test accuracy: {test_accuracy:.2f}%")
-    print(f"Model and results saved to: {output_dir}")
+    # --- Loss Function and Optimizer ---
+    # BCEWithLogitsLoss combines a Sigmoid layer and the BCELoss in one single class.
+    # This version is more numerically stable than using a plain Sigmoid followed by a BCELoss.
+    criterion = nn.BCEWithLogitsLoss()
 
-    # You can now use the trained models for inference
-    print("\nModel can now be used for inference.")
-    print("Categories in the models:")
-    for category, idx in category_to_idx.items():
-        print(f"  - {category} (index: {idx})")
+    # Optimizer - Adam is a common choice.
+    # If only fine-tuning the last layer, only pass its parameters.
+    if any(p.requires_grad for p in model.parameters()):  # Check if any parameters are trainable
+        if model.fc.weight.requires_grad:  # If only fc layer is trainable
+            print("Optimizing only the final layer.")
+            optimizer = optim.Adam(model.fc.parameters(), lr=LEARNING_RATE)
+        else:  # Should not happen if freeze_base=True and fc is replaced, but as a fallback
+            print("Optimizing all trainable parameters (unexpected for freeze_base=True).")
+            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=LEARNING_RATE)
+    else:
+        print("Error: No parameters to optimize. Check model freezing logic.")
+        exit()
 
-    print("\nStates in the models:")
-    for status, idx in status_to_idx.items():
-        print(f"  - {status} (index: {idx})")
+    # --- Train the Model ---
+    # Check if DataLoaders are empty
+    if len(train_loader) == 0 or len(val_loader) == 0:
+        print("Error: One or both DataLoaders are empty. This might be due to:")
+        print("1. No valid image paths found from the CSV in the specified IMAGE_DIR.")
+        print("2. BATCH_SIZE being larger than the dataset size.")
+        print("Please check your data, paths, and BATCH_SIZE.")
+        exit()
 
+    trained_model = train_model(
+        model, train_loader, val_loader, criterion, optimizer, DEVICE,
+        NUM_EPOCHS, EARLY_STOPPING_PATIENCE, BEST_MODEL_PATH
+    )
 
-if __name__ == "__main__":
-    main()
+    # --- Optional: Unfreeze some layers and fine-tune further ---
+    # If you want to fine-tune more layers after initial training:
+    # print("\n--- Starting Fine-tuning Phase (Unfreezing more layers) ---")
+    # for param in model.parameters(): # Unfreeze all or some layers
+    #     param.requires_grad = True
+    # optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=LEARNING_RATE / 10) # Use a smaller LR
+    # fine_tuned_model = train_model(
+    #     model, train_loader, val_loader, criterion, optimizer, DEVICE,
+    #     num_epochs=10, # Fewer epochs for fine-tuning
+    #     early_stopping_patience=3,
+    #     best_model_path='fine_tuned_best_model.pth'
+    # )
+
+    # --- How to load the best model for inference/evaluation later ---
+    print(f"\nTo load the best model for inference:")
+    print(f"model_inf = get_pretrained_resnet(num_classes=1, pretrained=False) # Or your specific architecture")
+    print(f"model_inf.load_state_dict(torch.load('{BEST_MODEL_PATH}', map_location=DEVICE))")
+    print(f"model_inf.to(DEVICE)")
+    print(f"model_inf.eval()")
+
+    print("\nScript finished.")
+
