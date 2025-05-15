@@ -7,13 +7,13 @@ IMAGE_DIR = '../data/InsPLAD-fault/defect_supervised'  # Replace with the base d
 
 IMG_HEIGHT = 224  # Image height for ResNet
 IMG_WIDTH = 224  # Image width for ResNet
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 NUM_WORKERS = 4  # Number of worker processes for DataLoader
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 NUM_EPOCHS = 50  # Max number of epochs (early stopping will be used)
 EARLY_STOPPING_PATIENCE = 5
-BEST_MODEL_PATH = 'best_defect_detection_model.pth'
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+BEST_MODEL_PATH = '../models/defect_detection_yoke_model.pth'
+DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == '__main__':
     print(f"Using device: {DEVICE}")
@@ -24,6 +24,7 @@ if __name__ == '__main__':
 
     # --- Data Loading and Preparation ---
     df = load_data_from_csv(CSV_FILE_PATH)
+    df = df[df['category_code'] == 4]
     train_df, val_df = split_data(df, stratify_col='status')  # Ensure 'status' is the correct column
 
     # Define image transformations
@@ -52,11 +53,17 @@ if __name__ == '__main__':
 
     # --- Model Initialization ---
     # num_classes=1 for binary classification with BCEWithLogitsLoss
-    model = get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=True)
+    model = get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=False)
 
     # --- Loss Function and Optimizer ---
     # BCEWithLogitsLoss combines a Sigmoid layer and the BCELoss in one single class.
     # This version is more numerically stable than using a plain Sigmoid followed by a BCELoss.
+
+    # n_defect = len(train_df[train_df['status'] == 0])  # positives
+    # n_good = len(train_df) - n_defect
+    # pos_w = torch.tensor([n_good / n_defect]).to(DEVICE)
+    #
+    # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_w)
     criterion = nn.BCEWithLogitsLoss()
 
     # Optimizer - Adam is a common choice.
