@@ -11,18 +11,20 @@ classifier.load_state_dict(torch.load("../models/defect_detection_model.pth"))
 classifier.to(DEVICE)
 
 detectable_classes = {7:0, 5:1, 11:2, 1:4}
-class_to_model = {0 : "defect_detection_glass_model.pth", 1 : "defect_detection_lightning_model.pth", 2: "defect_detection_polymer_model.pth", 4: "defect_detection_yoke_model.pth"}
+class_to_model = {0 : "defect_detection_glass_model.pth", 1 : "defect_detection_lighting_model.pth", 2: "defect_detection_polymer_model.pth", 4: "defect_detection_yoke_model.pth"}
 class_to_problem = {0 : "Missing cap", 1 : "Rust", 2: "Rust", 4: "Rust"}
 
-def get_model(class_id):
-    model_path = class_to_model[class_id]
-    model_path = os.path.join("../models", model_path)
-    model = get_pretrained_resnet(num_classes=1, pretrained=False)
-    model.load_state_dict(torch.load(model_path))
-    model.to(DEVICE)
-    model.eval()
+models = {}
+def load_models():
+    for i, v in class_to_model.items():
+        model_path = os.path.join("../models", v)
+        model = get_pretrained_resnet(num_classes=1, pretrained=False)
+        model.load_state_dict(torch.load(model_path))
+        model.eval()
+        models[i] = model
 
-    return model
+def get_model(class_id):
+    return models.get(class_id, None)
 
 def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
     """
@@ -48,12 +50,17 @@ def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
 
                 for box, confidence, class_id in zip(boxes.xyxy, confidences, cls_indices):
                     x1, y1, x2, y2 = box.tolist()
-                    class_name = result.names[int(class_id)]
-                    if class_id in detectable_classes:
-                        id = detectable_classes[class_id]
+                    c_id = int(class_id)
+                    class_name = result.names[c_id]
+                    print("Class name: ", class_name)
+                    print("Class ID: ", c_id)
+                    id = detectable_classes.get(c_id)
+                    print("Class ID modified: ", id)
+                    if id is not None:
                         crop = crop_object(original_img, box)
                         model = get_model(id)
                         prob, label = predict_single(crop, model, DEVICE)
+                        print(f"Lable: {label} with prob {prob}")
                         if label != 0:
                             draw.rectangle([(x1, y1), (x2, y2)], outline="red", width=1)
                             draw.text((x1, y1 - 12), class_to_problem[id], fill="red")
@@ -92,4 +99,5 @@ with gr.Blocks() as demo:
                         inputs=image_input,
                         outputs=[object_output, defect_output])
 
+load_models()
 demo.launch()

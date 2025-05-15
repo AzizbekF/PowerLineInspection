@@ -114,7 +114,7 @@ def get_data_loaders(train_df, val_df, image_dir, train_transform, val_transform
 
 # --- 2. Model Related Functions ---
 
-def get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=True):
+def get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=False):
     """
     Loads a pretrained ResNet model and modifies its final layer.
     Args:
@@ -298,7 +298,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device,
 
 
 
-def predict_single(img_path, model, device):
+def predict_single(img, model, device):
     img_tfms = transforms.Compose([
         transforms.Resize((224, 224)),  # <— same size you used
         transforms.ToTensor(),
@@ -307,8 +307,7 @@ def predict_single(img_path, model, device):
     ])
 
     """Return probability and binary label (0=good, 1=defect) for one image."""
-    model.eval()                                       # inference mode
-    img = Image.open(img_path).convert('RGB')
+    model.eval()
     x   = img_tfms(img).unsqueeze(0).to(device)        # shape 1×3×H×W
 
     with torch.no_grad():
