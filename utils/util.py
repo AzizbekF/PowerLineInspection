@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
 from PIL import Image
+import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 import cv2
@@ -48,7 +49,6 @@ def split_data(df, test_size=0.1, random_state=42, stratify_col='status'):
     except Exception as e:
         print(f"Error splitting data: {e}")
         exit()
-
 
 class DefectDataset(Dataset):
     """Custom Dataset for defect detection."""
@@ -113,6 +113,62 @@ def get_data_loaders(train_df, val_df, image_dir, train_transform, val_transform
 
 
 # --- 2. Model Related Functions ---
+from torchvision import transforms
+from PIL import Image
+import torch
+
+# === Define same transform as validation ===
+val_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225])
+])
+
+val_transform_efficientnet = transforms.Compose([
+    transforms.Resize((300, 300)),  # 👈 must match model input
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225])
+])
+
+def predict_image_for_missing_part(image, model, device='cpu', threshold=0.5):
+    model.eval()
+    img = val_transform_efficientnet(image).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        output = model(img).squeeze()
+        prob = torch.sigmoid(output).item()
+        pred = 1 if prob > threshold else 0
+
+    return prob, pred
+
+def predict_image(image, model, device='cpu', threshold=0.5):
+    model.eval()
+
+    # Load and preprocess image
+    image_tensor = val_transform(image).unsqueeze(0).to(device)
+
+    # Predict
+    with torch.no_grad():
+        output = model(image_tensor).squeeze()
+        prob = torch.sigmoid(output).item()
+        pred = 1 if prob > threshold else 0
+
+    return prob, pred
+
+
+def predict_single_image_bird_nest(image, model, device='cpu'):
+    model.eval()
+    input_tensor = val_transform_efficientnet(image).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        output = model(input_tensor)               # raw logits, shape: [1, 3]
+        probs = F.softmax(output, dim=1)           # convert to probabilities
+        pred = torch.argmax(probs, dim=1)          # predicted class index
+        confidence = probs[0, pred.item()].item()  # probability of that class
+
+    return confidence, pred.item()
 
 def get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=False):
     """
@@ -151,16 +207,6 @@ def save_best_model(model_state, filepath):
 
 
 # --- 3. Training and Evaluation Functions ---
-
-def compute_metrics(logits, labels, thr=0.5):
-    probs = torch.sigmoid(logits).detach().cpu().numpy().ravel()
-    y_true = labels.cpu().numpy().astype(int)
-    y_pred = (probs >= thr).astype(int)
-
-    prec, rec, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average='binary', pos_label=1, zero_division=0)
-    return prec, rec, f1
-
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
     """Trains the model for one epoch."""
     model.train()  # Set model to training mode

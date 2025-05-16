@@ -1,30 +1,43 @@
 from utils.util import *
 from ultralytics import RTDETR
-from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
-
+from torchvision import models as torchvision_models
+from PIL import ImageFont
 
 detector = RTDETR("../models/object_detection.pt")
 
-classifier = get_pretrained_resnet(num_classes=1, pretrained=False)
-classifier.load_state_dict(torch.load("../models/defect_detection_model.pth"))
-classifier.to(DEVICE)
-
-detectable_classes = {7:0, 5:1, 11:2, 1:4}
-class_to_model = {0 : "defect_detection_glass_model.pth", 1 : "defect_detection_lighting_model.pth", 2: "defect_detection_polymer_model.pth", 4: "defect_detection_yoke_model.pth"}
-class_to_problem = {0 : "Missing cap", 1 : "Rust", 2: "Rust", 4: "Rust"}
+detectable_classes = {7: 0, 5: 1, 11: 2, 9: 3, 1: 4}
+class_to_model = {0: "efficientnet_b3_missing_cup.pt", 1: "rust_detector_resnet_1.pt", 2: "rust_detector_resnet_2.pt",
+                  3: "efficientnet_b3_varigrip.pt", 4: "rust_detector_resnet_4.pt"}
+class_to_problem = {0: "Missing cap", 1: "Rust", 2: "Rust", 3: {1: "Rust", 2: "Bird nest"}, 4: "Rust"}
 
 models = {}
+
+
 def load_models():
     for i, v in class_to_model.items():
         model_path = os.path.join("../models", v)
-        model = get_pretrained_resnet(num_classes=1, pretrained=False)
-        model.load_state_dict(torch.load(model_path))
+
+        if i == 0:
+            model = torchvision_models.efficientnet_b3(weights=None)
+            model.classifier[1] = nn.Linear(model.classifier[1].in_features, 1)
+        elif i == 3:
+            model = torchvision_models.efficientnet_b3(weights=None)
+            model.classifier[1] = nn.Linear(model.classifier[1].in_features, 3)
+        else:
+            model = torchvision_models.resnet18(weights=None)
+            model.fc = nn.Linear(model.fc.in_features, 1)
+
+        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+        model.to(DEVICE)
         model.eval()
+
         models[i] = model
+
 
 def get_model(class_id):
     return models.get(class_id, None)
+
 
 def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
     """
@@ -59,12 +72,38 @@ def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
                     if id is not None:
                         crop = crop_object(original_img, box)
                         model = get_model(id)
-                        prob, label = predict_single(crop, model, DEVICE)
+                        if id == 0:
+                            prob, label = predict_image_for_missing_part(crop, model, DEVICE, 0.5)
+                        elif id == 3:
+                            prob, label = predict_single_image_bird_nest(crop, model, DEVICE)
+                        else:
+                            prob, label = predict_image(crop, model, DEVICE)
                         print(f"Lable: {label} with prob {prob}")
+
                         if label != 0:
-                            draw.rectangle([(x1, y1), (x2, y2)], outline="red", width=1)
-                            draw.text((x1, y1 - 12), class_to_problem[id], fill="red")
-                            detections.append({"id": id, "prob": prob, "label": label, "type": class_to_problem[id], "box": box, "confidence": confidence})
+                            draw.rectangle([(x1, y1), (x2, y2)], outline="red", width=3)
+                            # draw.text((x1, y1 + 20), class_to_problem[id], fill="red")
+
+                            font = ImageFont.load_default()
+
+                            if id != 3:
+                                text = class_to_problem[id]
+                            else:
+                                text = class_to_problem[id].get(label)
+
+                            # New way to calculate text size
+                            bbox = font.getbbox(text)  # returns (left, top, right, bottom)
+                            text_width = bbox[2] - bbox[0]
+                            text_height = bbox[3] - bbox[1]
+
+                            # Background box and text
+                            bg_box = [x1, y1 + 20, x1 + text_width + 6, y1 + 20 + text_height + 4]
+                            draw.rectangle(bg_box, fill="red")
+                            draw.text((x1 + 3, y1 + 22), text, fill="black", font=font)
+
+                            detections.append(
+                                {"id": id, "prob": prob, "label": label, "type": text, "box": box,
+                                 "confidence": confidence})
 
                 img_object_detection = Image.fromarray(result.plot().astype('uint8'))
                 return img_object_detection, img_defections if detections else None
@@ -75,9 +114,11 @@ def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
 import gradio as gr
 from PIL import Image
 
+
 def gradio_wrapper(image):
     obj_img, defect_img = run_full_pipeline(image)
     return obj_img, defect_img
+
 
 with gr.Blocks() as demo:
     gr.Markdown("## 🔍 Image Defect Detection")
