@@ -3,13 +3,15 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, models
+from torchvision import transforms
+from torchvision import models as torchvision_models
 from PIL import Image
 import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 import cv2
 import copy  # For saving the best model
+import numpy as np
 
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 
@@ -132,6 +134,230 @@ val_transform_efficientnet = transforms.Compose([
                          std=[0.229, 0.224, 0.225])
 ])
 
+def predict_image_for_missing_part_with_gradcam(image, model, target_layer_name, device='cpu', threshold=0.5):
+    model.eval()
+    img_tensor = val_transform_efficientnet(image).unsqueeze(0).to(device)
+    img_tensor.requires_grad = True
+
+    # --- 1. Hook for activations and gradients ---
+    activations = {}
+    gradients = {}
+
+    def forward_hook(module, input, output):
+        activations['value'] = output.detach()
+
+    def backward_hook(module, grad_in, grad_out):
+        gradients['value'] = grad_out[0].detach()
+
+    # --- 2. Register hooks ---
+    target_layer = dict([*model.named_modules()])[target_layer_name]
+    forward_handle = target_layer.register_forward_hook(forward_hook)
+    backward_handle = target_layer.register_full_backward_hook(backward_hook)
+
+    # --- 3. Forward pass ---
+    output = model(img_tensor)
+    prob = torch.sigmoid(output).item()
+    pred = 1 if prob > threshold else 0
+
+    # --- 4. Backward pass ---
+    model.zero_grad()
+    output.backward(torch.ones_like(output))
+
+    # --- 5. Get activations and gradients ---
+    acts = activations['value'][0]  # shape: [C, H, W]
+    grads = gradients['value'][0]   # shape: [C, H, W]
+
+    # --- 6. Compute weights & Grad-CAM map ---
+    weights = grads.mean(dim=(1, 2))  # [C]
+    cam = torch.zeros_like(acts[0])
+    for i, w in enumerate(weights):
+        cam += w * acts[i]
+    cam = F.relu(cam)
+    cam = cam - cam.min()
+    cam = cam / (cam.max() + 1e-8)
+    cam = cam.cpu().numpy()
+
+    # --- 7. Resize CAM and overlay ---
+    # Resize CAM and apply selective overlay
+    cam_resized = cv2.resize(cam, image.size)  # image.size = (W, H)
+    focus_mask = cam_resized > 0.4  # Only highlight strong activation areas
+
+    # Generate heatmap
+    heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+
+    # Convert to float32 for blending
+    image_np = np.array(image).astype(np.float32)
+    heatmap = heatmap.astype(np.float32)
+
+    # Create a copy of the original image
+    overlay = image_np.copy()
+
+    # Only blend pixels where mask is True
+    overlay[focus_mask] = (
+        0.3 * image_np[focus_mask] + 0.7 * heatmap[focus_mask]
+    )
+
+    # Convert back to uint8
+    overlay = np.uint8(np.clip(overlay, 0, 255))
+
+    # Cleanup hooks
+    forward_handle.remove()
+    backward_handle.remove()
+
+    return prob, pred, overlay, cam_resized
+
+def predict_with_gradcam_bird_nest(image, model, target_layer_name, device='cpu'):
+    model.eval()
+    input_tensor = val_transform_efficientnet(image).unsqueeze(0).to(device)
+    input_tensor.requires_grad = True
+
+    # Store activations and gradients
+    activations = {}
+    gradients = {}
+
+    def forward_hook(module, input, output):
+        activations['value'] = output.detach()
+
+    def backward_hook(module, grad_in, grad_out):
+        gradients['value'] = grad_out[0].detach()
+
+    # Register hooks
+    target_layer = dict([*model.named_modules()])[target_layer_name]
+    forward_handle = target_layer.register_forward_hook(forward_hook)
+    backward_handle = target_layer.register_full_backward_hook(backward_hook)
+
+    # Forward pass
+    output = model(input_tensor)                  # shape: [1, num_classes]
+    probs = F.softmax(output, dim=1)
+    pred_class = torch.argmax(probs, dim=1).item()
+    confidence = probs[0, pred_class].item()
+
+    # Backward pass for the predicted class
+    model.zero_grad()
+    one_hot = torch.zeros_like(output)
+    one_hot[0, pred_class] = 1
+    output.backward(gradient=one_hot)
+
+    # Get hooked data
+    acts = activations['value'][0]   # shape: [C, H, W]
+    grads = gradients['value'][0]    # shape: [C, H, W]
+
+    # Compute CAM
+    weights = grads.mean(dim=(1, 2))  # shape: [C]
+    cam = torch.zeros_like(acts[0])
+    for i, w in enumerate(weights):
+        cam += w * acts[i]
+    cam = F.relu(cam)
+    cam -= cam.min()
+    cam /= (cam.max() + 1e-8)
+    cam = cam.cpu().numpy()
+
+    # Resize CAM and apply selective overlay
+    cam_resized = cv2.resize(cam, image.size)  # image.size = (W, H)
+    focus_mask = cam_resized > 0.4  # Only highlight strong activation areas
+
+    # Generate heatmap
+    heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+
+    # Convert to float32 for blending
+    image_np = np.array(image).astype(np.float32)
+    heatmap = heatmap.astype(np.float32)
+
+    # Create a copy of the original image
+    overlay = image_np.copy()
+
+    # Only blend pixels where mask is True
+    overlay[focus_mask] = (
+        0.3 * image_np[focus_mask] + 0.7 * heatmap[focus_mask]
+    )
+
+    # Convert back to uint8
+    overlay = np.uint8(np.clip(overlay, 0, 255))
+
+    # Cleanup
+    forward_handle.remove()
+    backward_handle.remove()
+
+    return confidence, pred_class, overlay, cam_resized
+
+def predict_image_with_gradcam(image, model, device='cpu', threshold=0.5, target_layer_name='layer4'):
+    model.eval()
+
+    # Transform and prepare input
+    input_tensor = val_transform(image).unsqueeze(0).to(device)
+    input_tensor.requires_grad = True
+
+    # Hook containers
+    activations = {}
+    gradients = {}
+
+    def forward_hook(module, input, output):
+        activations['value'] = output.detach()
+
+    def backward_hook(module, grad_in, grad_out):
+        gradients['value'] = grad_out[0].detach()
+
+    # Register hooks
+    target_layer = dict([*model.named_modules()])[target_layer_name]
+    forward_handle = target_layer.register_forward_hook(forward_hook)
+    backward_handle = target_layer.register_full_backward_hook(backward_hook)
+
+    # Forward pass
+    output = model(input_tensor).squeeze()  # raw logit
+    prob = torch.sigmoid(output).item()
+    pred = 1 if prob > threshold else 0
+
+    # Backward for Grad-CAM
+    model.zero_grad()
+    output.backward()
+
+    # Extract data
+    acts = activations['value'][0]  # shape: [C, H, W]
+    grads = gradients['value'][0]   # shape: [C, H, W]
+
+    # Compute Grad-CAM
+    weights = grads.mean(dim=(1, 2))  # shape: [C]
+    cam = torch.zeros_like(acts[0])
+    for i, w in enumerate(weights):
+        cam += w * acts[i]
+    cam = F.relu(cam)
+    cam -= cam.min()
+    cam /= (cam.max() + 1e-8)
+    cam = cam.cpu().numpy()
+
+    # Resize and overlay
+    # Resize CAM and apply selective overlay
+    cam_resized = cv2.resize(cam, image.size)  # image.size = (W, H)
+    focus_mask = cam_resized > 0.4  # Only highlight strong activation areas
+
+    # Generate heatmap
+    heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+
+    # Convert to float32 for blending
+    image_np = np.array(image).astype(np.float32)
+    heatmap = heatmap.astype(np.float32)
+
+    # Create a copy of the original image
+    overlay = image_np.copy()
+
+    # Only blend pixels where mask is True
+    overlay[focus_mask] = (
+        0.3 * image_np[focus_mask] + 0.7 * heatmap[focus_mask]
+    )
+
+    # Convert back to uint8
+    overlay = np.uint8(np.clip(overlay, 0, 255))
+
+    # Clean up
+    forward_handle.remove()
+    backward_handle.remove()
+
+    return prob, pred, overlay, cam_resized
+
+
 def predict_image_for_missing_part(image, model, device='cpu', threshold=0.5):
     model.eval()
     img = val_transform_efficientnet(image).unsqueeze(0).to(device)
@@ -181,7 +407,7 @@ def get_pretrained_resnet(num_classes=1, pretrained=True, freeze_base=False):
         torch.nn.Module: The ResNet model.
     """
     # Using resnet18 as an example, can be changed to resnet34, resnet50 etc.
-    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
+    model = torchvision_models.resnet18(weights=torchvision_models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
 
     if freeze_base and pretrained:
         print("Freezing base ResNet layers.")
