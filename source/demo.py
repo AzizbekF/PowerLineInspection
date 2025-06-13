@@ -2,7 +2,9 @@ from utils.util import *
 from ultralytics import RTDETR
 from pathlib import Path
 from torchvision import models as torchvision_models
-from PIL import ImageFont
+from PIL import ImageFont, ImageDraw
+import numpy as np
+from transformers import SamProcessor, SamModel
 
 detector = RTDETR("../models/object_detection.pt")
 
@@ -13,6 +15,8 @@ class_to_problem = {0: "Missing cap", 1: "Rust", 2: "Rust", 3: {1: "Rust", 2: "B
 
 models = {}
 
+sam_model = SamModel.from_pretrained("facebook/sam-vit-huge")#.to("mps")  # or "cuda"/"cpu"
+sam_processor = SamProcessor.from_pretrained("facebook/sam-vit-huge")
 
 def load_models():
     for i, v in class_to_model.items():
@@ -34,10 +38,29 @@ def load_models():
 
         models[i] = model
 
-
 def get_model(class_id):
     return models.get(class_id, None)
 
+def show_masks_on_image(raw_image, masks, scores, alpha=0.8):
+    image_np = np.array(raw_image).astype(np.float32) / 255.0
+    if len(masks.shape) == 4:
+        masks = masks.squeeze(0)
+    if scores.shape[0] == 1:
+        scores = scores.squeeze()
+
+    nb_predictions = scores.shape[0]
+    overlay = image_np.copy()
+
+    for i in range(nb_predictions):
+        mask = masks[i].cpu().detach().numpy()
+        color = np.random.rand(3)
+        mask_3d = np.stack([mask] * 3, axis=-1)
+        overlay = np.where(mask_3d > 0.5,
+                           (1 - alpha) * overlay + alpha * color,
+                           overlay)
+
+    overlay = (overlay * 255).astype(np.uint8)
+    return Image.fromarray(overlay)
 
 def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
     """
@@ -46,7 +69,6 @@ def run_full_pipeline(img, image_path: str | Path = "", pad: int = 0):
     • Run defect classifier on the crops
     • Return processed images (object and defect images)
     """
-    from PIL import ImageDraw
 
     original_img = img.convert("RGB") if img else Image.open(image_path).convert("RGB")
     img_defections = original_img.copy()
