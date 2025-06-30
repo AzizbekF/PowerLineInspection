@@ -134,7 +134,9 @@ val_transform_efficientnet = transforms.Compose([
                          std=[0.229, 0.224, 0.225])
 ])
 
-def predict_image_for_missing_part_with_gradcam(image, model, target_layer_name, device='cpu', threshold=0.5):
+def predict_image_for_missing_part_with_gradcam(
+    image, model, target_layer_name, device='cpu', threshold=0.5
+):
     model.eval()
     img_tensor = val_transform_efficientnet(image).unsqueeze(0).to(device)
     img_tensor.requires_grad = True
@@ -177,34 +179,24 @@ def predict_image_for_missing_part_with_gradcam(image, model, target_layer_name,
     cam = cam / (cam.max() + 1e-8)
     cam = cam.cpu().numpy()
 
-    # --- 7. Resize CAM and overlay ---
-    # Resize CAM and apply selective overlay
+    # --- 7. Resize CAM ---
     cam_resized = cv2.resize(cam, image.size)  # image.size = (W, H)
-    focus_mask = cam_resized > 0.4  # Only highlight strong activation areas
 
-    # Generate heatmap
+    # --- (Optional) Generate overlay for visualization only ---
     heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
 
-    # Convert to float32 for blending
     image_np = np.array(image).astype(np.float32)
     heatmap = heatmap.astype(np.float32)
 
-    # Create a copy of the original image
-    overlay = image_np.copy()
-
-    # Only blend pixels where mask is True
-    overlay[focus_mask] = (
-        0.3 * image_np[focus_mask] + 0.7 * heatmap[focus_mask]
-    )
-
-    # Convert back to uint8
+    overlay = 0.3 * image_np + 0.7 * heatmap
     overlay = np.uint8(np.clip(overlay, 0, 255))
 
-    # Cleanup hooks
+    # --- 8. Cleanup hooks ---
     forward_handle.remove()
     backward_handle.remove()
 
+    # --- 9. Return ---
     return prob, pred, overlay, cam_resized
 
 def predict_with_gradcam_bird_nest(image, model, target_layer_name, device='cpu'):
